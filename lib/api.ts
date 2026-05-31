@@ -1,4 +1,10 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+// ── Base URL ──────────────────────────────────────────────────────────────────
+// In browser: use relative /api/v1 path → proxied by Next.js rewrites (no CORS)
+// In SSR / server: use the full env URL directly
+const BASE_URL =
+  typeof window !== 'undefined'
+    ? '/api/v1'                                               // browser → proxy
+    : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'); // SSR
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -11,7 +17,7 @@ export function setToken(token: string) {
 
 export function clearToken() {
   localStorage.removeItem('propai_token');
-  localStorage.removeItem('propai_user');propertiesApi
+  localStorage.removeItem('propai_user');
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -24,12 +30,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...(options.headers as Record<string, string>),
   };
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  } catch (err) {
+    console.error(`[API] Network error for ${path}:`, err);
+    throw new Error(`Network error: could not reach ${BASE_URL}${path}`);
+  }
 
   if (res.status === 401) {
     clearToken();
-    window.location.href = '/admin/login';
+    if (typeof window !== 'undefined') window.location.href = '/admin/login';
     throw new Error('Unauthorized');
+  }
+
+  // Handle non-JSON responses gracefully
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    return {} as T;
   }
 
   const data = await res.json();
@@ -92,7 +111,7 @@ export const propertiesApi = {
     request<any>(`/properties/${id}/restore`, { method: 'PATCH' }),
 };
 
-// ─── Chat / Conversations ─────────────────────────────────────────────────────
+// ─── Chat ─────────────────────────────────────────────────────────────────────
 export const chatApi = {
   getSession: (sessionId: string) => request<any>(`/chat/${sessionId}`),
 };
